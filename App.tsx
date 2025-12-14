@@ -1,17 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Brain, ScanEye, Palette, Lock, ShieldCheck, Loader2 } from 'lucide-react';
+import { Sparkles, Brain, ScanEye, Palette, Lock, ShieldCheck, Loader2, LogOut } from 'lucide-react';
 import ImageUploader from './components/ImageUploader';
 import AnalysisDisplay from './components/AnalysisDisplay';
 import LoadingOverlay from './components/LoadingOverlay';
 import ArtGenerator from './components/ArtGenerator';
 import AdminDashboard from './components/AdminDashboard';
+import Login from './components/Login';
 import { analysisService } from './services/analysisService';
 import { storageService } from './services/storageService';
-import { AppState, AnalysisResult, UploadedImage, ViewMode, SavedArtwork } from './types';
+import { AppState, AnalysisResult, UploadedImage, ViewMode, SavedArtwork, User } from './types';
 import { useOpenCV } from './hooks/useOpenCV';
 
 const App: React.FC = () => {
   const cvLoaded = useOpenCV();
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.ANALYZE);
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
   
@@ -22,26 +26,42 @@ const App: React.FC = () => {
   // Internal Gallery State
   const [savedGallery, setSavedGallery] = useState<SavedArtwork[]>([]);
 
-  // Load persistence on mount
+  // Check for existing session
   useEffect(() => {
-    const loadData = async () => {
+    const checkSession = async () => {
       try {
+        const user = await storageService.getCurrentUser();
+        if (user) setCurrentUser(user);
+        
+        // Also load gallery
         const gallery = await storageService.getGallery();
         setSavedGallery(gallery);
       } catch (e) {
-        console.error("Failed to load local storage data", e);
+        console.error("Session check failed", e);
+      } finally {
+        setAuthLoading(false);
       }
     };
-    loadData();
+    checkSession();
   }, []);
+
+  const handleLogout = async () => {
+    await storageService.logout();
+    setCurrentUser(null);
+    setAppState(AppState.IDLE);
+    setResult(null);
+    setImage(null);
+  };
 
   const handleImageSelected = async (
     base64: string, 
     mimeType: string, 
     emotion: { primary: string, secondary: string, tertiary?: string } | undefined, 
-    userName: string,
-    originalTemplate?: string // Optional: The blank template if available
+    // userName is removed from args, we use currentUser.name
+    originalTemplate?: string 
   ) => {
+    if (!currentUser) return;
+
     // If coming from generator, we need to switch view mode
     setViewMode(ViewMode.ANALYZE);
     
@@ -66,7 +86,7 @@ const App: React.FC = () => {
       await storageService.saveAnalysis({
         id: crypto.randomUUID(),
         imageUrl: base64,
-        userName: userName,
+        userName: currentUser.name, // Use logged in name
         userEmotion: emotion,
         result: data,
         cvMetrics: cvMetrics, // Save the CV data too
@@ -88,22 +108,10 @@ const App: React.FC = () => {
   };
 
   const handleArtworkFromGenerator = (artwork: SavedArtwork) => {
-    // When analyzing from generator, we skip the emotion check/Name input for now.
-    // KEY: We pass artwork.base64 as the *original template* because in the generator, 
-    // the user downloads the blank, colors it offline, and re-uploads it? 
-    // Wait, typically the user would upload a *photo* of the colored version. 
-    // But if we are simulating the flow where they color digitally or we just want to analyze the blank one (test), it works.
-    
-    // However, usually the flow is: 
-    // 1. Generate Template (Stored in Library)
-    // 2. Print & Color
-    // 3. Upload Photo via "Analyze Art" tab
-    
-    // If the user clicks "Analyze This Image" on a *Generated Blank* (in ArtGenerator), 
-    // they are technically asking to analyze the blank image. 
-    // The CV will report 100% White Space and 0% Rebellion.
-    
-    handleImageSelected(artwork.base64, 'image/png', undefined, "Generator User", artwork.base64);
+    if (!currentUser) return;
+    // Analyzing generated art directly (blank or pre-colored simulation)
+    // We pass artwork.base64 as the template for potential subtraction logic if they colored it
+    handleImageSelected(artwork.base64, 'image/png', undefined, artwork.base64);
   };
 
   const handleSaveToGallery = async (art: SavedArtwork) => {
@@ -111,7 +119,16 @@ const App: React.FC = () => {
     await storageService.saveArtwork(art);
   };
 
-  // If OpenCV is not ready, block the app with a loading screen
+  if (authLoading) {
+     return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400">Loading Session...</div>;
+  }
+
+  // 1. Auth Gate
+  if (!currentUser) {
+    return <Login onLogin={setCurrentUser} />;
+  }
+
+  // 2. CV Gate
   if (!cvLoaded) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
@@ -134,7 +151,7 @@ const App: React.FC = () => {
       <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12 flex-grow w-full">
         
         {/* Header */}
-        <header className="mb-10 text-center">
+        <header className="mb-10 text-center relative">
           <div className="inline-flex items-center justify-center space-x-2 bg-white px-4 py-1.5 rounded-full shadow-sm border border-slate-200 mb-6">
             <Sparkles size={16} className="text-indigo-500" />
             <span className="text-xs font-semibold tracking-wider uppercase text-slate-500">AI Art Therapy Assistant</span>
@@ -145,6 +162,18 @@ const App: React.FC = () => {
               Art Analyst
             </span>
           </h1>
+
+          {/* User Status / Logout */}
+          <div className="absolute top-0 right-0 flex flex-col items-end">
+            <div className="text-sm font-bold text-slate-700">{currentUser.name}</div>
+            <div className="text-xs text-slate-400">@{currentUser.username}</div>
+            <button 
+              onClick={handleLogout}
+              className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 mt-1 transition-colors"
+            >
+              <LogOut size={10} /> Sign Out
+            </button>
+          </div>
         </header>
 
         {/* Navigation Tabs (Only show if not in Admin mode) */}
@@ -202,7 +231,9 @@ const App: React.FC = () => {
                       Upload your colored artwork below. We analyze <strong>how</strong> you colored it—not just what you drew—to reveal a unique personality snapshot.
                     </p>
                   </div>
-                  <ImageUploader onImageSelected={handleImageSelected} />
+                  <ImageUploader 
+                    onImageSelected={(base64, mime, emotion) => handleImageSelected(base64, mime, emotion)} 
+                  />
                 </div>
               )}
 

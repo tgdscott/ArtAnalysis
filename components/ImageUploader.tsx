@@ -1,9 +1,9 @@
 import React, { useRef, useState } from 'react';
-import { Upload, Image as ImageIcon, Heart, ArrowRight, User } from 'lucide-react';
+import { Upload, Heart, ArrowRight } from 'lucide-react';
 import { EMOTION_WHEEL } from '../constants';
 
 interface ImageUploaderProps {
-  onImageSelected: (base64: string, mimeType: string, emotion: { primary: string, secondary: string, tertiary?: string }, userName: string) => void;
+  onImageSelected: (base64: string, mimeType: string, emotion: { primary: string, secondary: string, tertiary?: string }) => void;
 }
 
 const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageSelected }) => {
@@ -11,9 +11,6 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageSelected }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<{ base64: string, type: string } | null>(null);
   
-  // User Identity
-  const [userName, setUserName] = useState<string>("");
-
   // Emotion State
   const [primaryEmotion, setPrimaryEmotion] = useState<string | null>(null);
   const [secondaryEmotion, setSecondaryEmotion] = useState<string | null>(null);
@@ -52,6 +49,10 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageSelected }) => {
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processFile(file);
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -64,7 +65,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageSelected }) => {
   };
 
   const handleFinalSubmit = () => {
-    if (selectedFile && primaryEmotion && secondaryEmotion && userName) {
+    if (selectedFile && primaryEmotion && secondaryEmotion) {
       onImageSelected(
         selectedFile.base64, 
         selectedFile.type, 
@@ -72,8 +73,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageSelected }) => {
           primary: primaryEmotion, 
           secondary: secondaryEmotion,
           tertiary: tertiaryEmotion || undefined 
-        },
-        userName
+        }
       );
     }
   };
@@ -91,27 +91,16 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageSelected }) => {
     return (
       <div className="w-full max-w-4xl mx-auto bg-white rounded-3xl shadow-xl border border-gray-200 overflow-hidden animate-fade-in-up flex flex-col md:flex-row h-auto md:min-h-[600px]">
         
-        {/* Left Col: Image & Name */}
+        {/* Left Col: Image Preview */}
         <div className="w-full md:w-1/3 bg-gray-50 p-6 flex flex-col border-b md:border-b-0 md:border-r border-gray-200">
             <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Your Artwork</h3>
             <div className="relative rounded-xl overflow-hidden shadow-md mb-6 aspect-square bg-white">
                <img src={selectedFile.base64} className="w-full h-full object-cover" />
             </div>
             
-            <div className="mt-auto">
-               <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Who colored this?</label>
-               <div className="relative">
-                 <User className="absolute left-3 top-3 text-gray-400" size={18} />
-                 <input 
-                    type="text" 
-                    placeholder="Enter your name or alias"
-                    value={userName}
-                    onChange={(e) => setUserName(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                 />
-               </div>
-               <p className="text-[10px] text-gray-400 mt-2">This helps us track your progress in the admin dashboard.</p>
-            </div>
+            <p className="text-xs text-gray-400 mt-auto">
+              Please identify the emotions you felt while creating this piece.
+            </p>
             
              <button 
               onClick={() => setSelectedFile(null)} 
@@ -231,10 +220,10 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageSelected }) => {
           <div className="mt-8 pt-6 border-t border-gray-100 flex justify-end">
             <button
               onClick={handleFinalSubmit}
-              disabled={!primaryEmotion || !secondaryEmotion || !tertiaryEmotion || !userName.trim()}
+              disabled={!primaryEmotion || !secondaryEmotion || !tertiaryEmotion}
               className={`
                 flex items-center gap-2 px-8 py-3 rounded-xl font-bold text-lg shadow-lg transition-all w-full md:w-auto justify-center
-                ${(primaryEmotion && secondaryEmotion && tertiaryEmotion && userName.trim())
+                ${(primaryEmotion && secondaryEmotion && tertiaryEmotion)
                   ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:shadow-indigo-200 hover:-translate-y-0.5'
                   : 'bg-gray-100 text-gray-400 cursor-not-allowed'}
               `}
@@ -282,7 +271,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageSelected }) => {
           {isDragging ? 'Drop to analyze' : 'Upload your artwork'}
         </h3>
         <p className="text-gray-500 text-sm mb-6 max-w-xs mx-auto">
-          We'll ask for your name and emotions, then analyze the art.
+          We'll ask for your emotions, then analyze the art.
         </p>
 
         <button className="px-6 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 shadow-sm group-hover:bg-indigo-50 group-hover:text-indigo-700 group-hover:border-indigo-200 transition-colors">

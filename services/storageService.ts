@@ -1,16 +1,5 @@
 import { openDB, DBSchema } from 'idb';
-import { SavedArtwork, AnalysisRecord } from '../types';
-
-/**
- * GOOGLE CLOUD MIGRATION NOTE:
- * This service currently uses IndexedDB for local browser persistence.
- * To migrate to Google Cloud:
- * 1. Replace the `idb` logic with calls to your backend API.
- * 2. The backend should interact with a database like Cloud SQL (PostgreSQL) or Firestore.
- * 3. `saveArtwork` -> POST /api/artwork
- * 4. `getGallery` -> GET /api/artwork
- * 5. `saveAnalysis` -> POST /api/analysis
- */
+import { SavedArtwork, AnalysisRecord, User } from '../types';
 
 interface ArtTherapyDB extends DBSchema {
   gallery: {
@@ -21,10 +10,18 @@ interface ArtTherapyDB extends DBSchema {
     key: string;
     value: AnalysisRecord;
   };
+  users: {
+    key: string; // email as key for simplicity in this prototype
+    value: User;
+  };
+  session: {
+    key: string;
+    value: { activeEmail: string };
+  };
 }
 
 const DB_NAME = 'projective-art-db';
-const VERSION = 1;
+const VERSION = 2; // Incremented for Users
 
 const getDB = async () => {
   return openDB<ArtTherapyDB>(DB_NAME, VERSION, {
@@ -35,11 +32,53 @@ const getDB = async () => {
       if (!db.objectStoreNames.contains('analysis')) {
         db.createObjectStore('analysis', { keyPath: 'id' });
       }
+      if (!db.objectStoreNames.contains('users')) {
+        db.createObjectStore('users', { keyPath: 'email' });
+      }
+      if (!db.objectStoreNames.contains('session')) {
+        db.createObjectStore('session', { keyPath: 'key' });
+      }
     },
   });
 };
 
 export const storageService = {
+  // --- User / Auth ---
+  async loginOrRegister(name: string, email: string, username?: string): Promise<User> {
+    const db = await getDB();
+    const existing = await db.get('users', email);
+    
+    if (existing) {
+      // Login: Update session
+      await db.put('session', { key: 'current', activeEmail: email });
+      return existing;
+    } else {
+      // Register
+      const newUser: User = {
+        id: crypto.randomUUID(),
+        name,
+        email,
+        username: username && username.trim() !== '' ? username : email,
+        createdAt: Date.now()
+      };
+      await db.put('users', newUser);
+      await db.put('session', { key: 'current', activeEmail: email });
+      return newUser;
+    }
+  },
+
+  async getCurrentUser(): Promise<User | null> {
+    const db = await getDB();
+    const session = await db.get('session', 'current');
+    if (!session) return null;
+    return (await db.get('users', session.activeEmail)) || null;
+  },
+
+  async logout(): Promise<void> {
+    const db = await getDB();
+    await db.delete('session', 'current');
+  },
+
   // --- Gallery (Generated Art) ---
 
   async saveArtwork(artwork: SavedArtwork): Promise<void> {

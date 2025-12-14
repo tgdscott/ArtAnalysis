@@ -1,3 +1,11 @@
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  username: string; // Defaults to email if not provided
+  createdAt: number;
+}
+
 export interface AnalysisResult {
   visualEvidence: string[];
   personalitySnapshot: string;

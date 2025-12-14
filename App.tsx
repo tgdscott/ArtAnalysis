@@ -5,7 +5,7 @@ import AnalysisDisplay from './components/AnalysisDisplay';
 import LoadingOverlay from './components/LoadingOverlay';
 import ArtGenerator from './components/ArtGenerator';
 import AdminDashboard from './components/AdminDashboard';
-import { analyzeImage } from './services/geminiService';
+import { analysisService } from './services/analysisService';
 import { storageService } from './services/storageService';
 import { AppState, AnalysisResult, UploadedImage, ViewMode, SavedArtwork } from './types';
 
@@ -42,7 +42,9 @@ const App: React.FC = () => {
     setErrorMsg(null);
 
     try {
-      const data = await analyzeImage(base64, mimeType);
+      // Use the new Analysis Service that orchestrates CV + AI
+      const { result: data, cvMetrics } = await analysisService.processArtwork(base64, mimeType, emotion);
+      
       setResult(data);
       setAppState(AppState.SUCCESS);
 
@@ -53,6 +55,7 @@ const App: React.FC = () => {
         userName: userName,
         userEmotion: emotion,
         result: data,
+        cvMetrics: cvMetrics, // Save the CV data too
         timestamp: Date.now()
       });
 
@@ -72,8 +75,6 @@ const App: React.FC = () => {
 
   const handleArtworkFromGenerator = (artwork: SavedArtwork) => {
     // When analyzing from generator, we skip the emotion check/Name input for now.
-    // In a real app we might want to pop a modal here.
-    // For now we pass a default name.
     handleImageSelected(artwork.base64, 'image/png', undefined, "Generator User");
   };
 

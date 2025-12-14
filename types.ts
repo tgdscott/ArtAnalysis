@@ -17,6 +17,13 @@ export interface SavedArtwork {
   timestamp: number;
 }
 
+export interface CVMetrics {
+  whiteSpaceRatio: number; // 0-1
+  dominantColors: { color: string; percentage: number }[];
+  lineVisibilityScore: number; // 0-1 (How much of the black lines remain visible)
+  fillConsistencyScore: number; // 0-1 (How smooth/uniform is the coloring)
+}
+
 export interface AnalysisRecord {
   id: string;
   artworkId?: string; // Optional link to a generated artwork ID
@@ -28,6 +35,7 @@ export interface AnalysisRecord {
     tertiary?: string;
   };
   result: AnalysisResult;
+  cvMetrics?: CVMetrics;
   timestamp: number;
 }
 

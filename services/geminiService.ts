@@ -30,10 +30,15 @@ const analysisSchema: Schema = {
   required: ["visualEvidence", "personalitySnapshot", "disclaimer"],
 };
 
-export const analyzeImage = async (base64Data: string, mimeType: string): Promise<AnalysisResult> => {
+// Now accepts optional context string
+export const analyzeImage = async (base64Data: string, mimeType: string, context?: string): Promise<AnalysisResult> => {
   try {
     // Strip the data:image/xxx;base64, prefix if present
     const cleanBase64 = base64Data.replace(/^data:image\/\w+;base64,/, "");
+
+    const finalPrompt = context 
+      ? `${USER_PROMPT}\n\nIMPORTANT - USE THIS DATA TO GROUND YOUR ANALYSIS:\n${context}` 
+      : USER_PROMPT;
 
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
@@ -46,7 +51,7 @@ export const analyzeImage = async (base64Data: string, mimeType: string): Promis
             },
           },
           {
-            text: USER_PROMPT,
+            text: finalPrompt,
           },
         ],
       },

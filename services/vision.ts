@@ -4,13 +4,11 @@ declare global {
   interface Window { cv: any; }
 }
 
-// Wait for OpenCV to initialize
 const waitForOpenCV = async (): Promise<void> => {
   return new Promise((resolve) => {
     if (window.cv && window.cv.Mat) {
       resolve();
     } else {
-      // Poll for it
       const interval = setInterval(() => {
         if (window.cv && window.cv.Mat) {
           clearInterval(interval);
@@ -30,143 +28,180 @@ const loadImage = async (base64: string): Promise<HTMLImageElement> => {
   });
 };
 
-export const analyzeArtwork = async (base64: string): Promise<CVMetrics> => {
+// Helper to convert CV hue to Name
+function getHueName(h: number, s: number, v: number): string {
+  // OpenCV Hue is 0-179. s,v are 0-255
+  if (v < 40) return "Black";
+  if (v > 230 && s < 30) return "White";
+  if (s < 30) return "Gray";
+
+  const hueDeg = h * 2;
+  if (hueDeg >= 0 && hueDeg < 15) return "Red";
+  if (hueDeg >= 15 && hueDeg < 45) return "Orange";
+  if (hueDeg >= 45 && hueDeg < 70) return "Yellow";
+  if (hueDeg >= 70 && hueDeg < 150) return "Green";
+  if (hueDeg >= 150 && hueDeg < 190) return "Teal";
+  if (hueDeg >= 190 && hueDeg < 260) return "Blue";
+  if (hueDeg >= 260 && hueDeg < 300) return "Purple";
+  if (hueDeg >= 300 && hueDeg < 340) return "Pink";
+  return "Red"; 
+}
+
+export const analyzeArtwork = async (userBase64: string, templateBase64?: string): Promise<CVMetrics> => {
   await waitForOpenCV();
   const cv = window.cv;
-  const imgElement = await loadImage(base64);
-
-  // 1. Read Image
-  const src = cv.imread(imgElement);
   
-  // 2. Convert to Grayscale & HSV
+  const src = cv.imread(await loadImage(userBase64));
+  let template: any = null;
+  if (templateBase64) {
+    template = cv.imread(await loadImage(templateBase64));
+    // Ensure size match. If not, resize template to src
+    if (src.rows !== template.rows || src.cols !== template.cols) {
+      const dsize = new cv.Size(src.cols, src.rows);
+      cv.resize(template, template, dsize, 0, 0, cv.INTER_AREA);
+    }
+  }
+
+  // Convert to Grayscale & HSV
   const gray = new cv.Mat();
   const hsv = new cv.Mat();
   cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
-  cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB); // Convert to RGB first
+  cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB); 
   cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
 
   const totalPixels = src.rows * src.cols;
 
   // --- METRIC 1: Space (White Space Ratio) ---
-  // Threshold to find white paper (assuming > 240 is white in grayscale)
-  // We can be smarter: Adaptive threshold or just high luminance check
   const whiteMask = new cv.Mat();
   cv.threshold(gray, whiteMask, 245, 255, cv.THRESH_BINARY);
   const whitePixelCount = cv.countNonZero(whiteMask);
   const whiteSpaceRatio = whitePixelCount / totalPixels;
 
-  // --- METRIC 2: Boundary Adherence (Line Visibility / Rebellion) ---
-  // Since we don't always have the source template, we infer lines from the image itself.
-  // Assumption: Original lines are the darkest pixels (Intensity < 50).
-  // If user colors OVER lines, those pixels become lighter (Intensity > 50) or Colored.
-  
+  // --- METRIC 2: Rebellion Score (Boundary Adherence) ---
+  let rebellionScore = 0;
+  let lineVisibilityScore = 0;
   const lineMask = new cv.Mat();
-  // Strictly black lines
-  cv.threshold(gray, lineMask, 60, 255, cv.THRESH_BINARY_INV);
-  const blackPixelCount = cv.countNonZero(lineMask);
-  
-  // Heuristic: A standard coloring page is ~5-15% black lines.
-  // If black pixel count drops below ~2%, they likely colored over the lines.
-  // We normalize this to a 0-1 score where 1.0 is "Perfect Lines" (approx > 5% black).
-  const expectedLineThreshold = 0.05 * totalPixels;
-  let lineVisibilityScore = blackPixelCount / expectedLineThreshold;
-  if (lineVisibilityScore > 1) lineVisibilityScore = 1;
-  
+
+  if (template) {
+    // === METHOD A: SUBTRACTION (If we have the template) ===
+    // 1. Extract lines from Template (Black lines)
+    const grayTemplate = new cv.Mat();
+    cv.cvtColor(template, grayTemplate, cv.COLOR_RGBA2GRAY, 0);
+    const templateLines = new cv.Mat();
+    // Invert: Lines become white (255), Background black (0)
+    cv.threshold(grayTemplate, templateLines, 100, 255, cv.THRESH_BINARY_INV);
+
+    // 2. Identify User Ink (Anything dark/colored in User Image)
+    const userInk = new cv.Mat();
+    cv.threshold(gray, userInk, 240, 255, cv.THRESH_BINARY_INV);
+
+    // 3. Rebellion = (User Ink) - (Template Lines)
+    // Pixels that are INK but NOT LINES.
+    const rebellionMask = new cv.Mat();
+    cv.subtract(userInk, templateLines, rebellionMask);
+
+    const totalInkPixels = cv.countNonZero(userInk);
+    const spilloverPixels = cv.countNonZero(rebellionMask);
+    
+    // Normalized Score
+    rebellionScore = totalInkPixels > 0 ? (spilloverPixels / totalInkPixels) : 0;
+    
+    // Line Visibility (Inverse proxy)
+    // We check if pixels that ARE lines in template are still dark in Source
+    // This is computationally heavier, so we approximate:
+    lineVisibilityScore = 1 - rebellionScore; 
+
+    grayTemplate.delete(); templateLines.delete(); userInk.delete(); rebellionMask.delete();
+  } else {
+    // === METHOD B: INFERENCE (If uploaded image only) ===
+    // Infer lines are the darkest pixels
+    cv.threshold(gray, lineMask, 60, 255, cv.THRESH_BINARY_INV);
+    const blackPixelCount = cv.countNonZero(lineMask);
+    
+    // Standard coloring page is ~5-8% black lines.
+    const expectedLineThreshold = 0.05 * totalPixels;
+    lineVisibilityScore = Math.min(blackPixelCount / expectedLineThreshold, 1.0);
+    
+    // If line visibility is low, it implies they colored over lines -> High Rebellion
+    rebellionScore = 1 - lineVisibilityScore;
+  }
+
   // --- METRIC 3: Fill Consistency (Control) ---
-  // We look at the standard deviation of color in non-white/non-black areas.
-  // Lower StdDev = More Uniform/Controlled. Higher = Messy/Scribbly.
-  const inkMask = new cv.Mat();
-  const lowerInk = new cv.Mat(src.rows, src.cols, src.type(), [0, 0, 0, 0]);
-  const upperInk = new cv.Mat(src.rows, src.cols, src.type(), [255, 255, 255, 255]);
-  
-  // Create a mask for "colored" areas (Not White, Not Black)
-  // Invert white mask (everything not white) AND Invert line mask (everything not black)
+  // StdDev of color in colored areas
   const notWhite = new cv.Mat();
-  const notBlack = new cv.Mat();
   cv.bitwise_not(whiteMask, notWhite);
-  cv.bitwise_not(lineMask, notBlack);
+  
+  // Refine colored area: Not White AND Not inferred lines
+  // (We recalculate lineMask for consistency if template was used)
+  const currentLines = new cv.Mat();
+  cv.threshold(gray, currentLines, 60, 255, cv.THRESH_BINARY_INV);
+  const notLines = new cv.Mat();
+  cv.bitwise_not(currentLines, notLines);
   
   const coloredAreaMask = new cv.Mat();
-  cv.bitwise_and(notWhite, notBlack, coloredAreaMask);
-  
-  // Calculate Mean and StdDev of the colored areas
+  cv.bitwise_and(notWhite, notLines, coloredAreaMask);
+
   const mean = new cv.Mat();
   const stdDev = new cv.Mat();
   cv.meanStdDev(src, mean, stdDev, coloredAreaMask);
   
-  // Average StdDev across R, G, B channels
   const avgStdDev = (stdDev.data64F[0] + stdDev.data64F[1] + stdDev.data64F[2]) / 3;
   // Normalize: 0 stdDev is perfect control. 60+ is very messy.
   const fillConsistencyScore = Math.max(0, 1 - (avgStdDev / 60));
 
   // --- METRIC 4: Dominant Colors ---
-  // Simple Histogram approach on Hue channel
-  // We only care about Hue where Saturation > threshold
+  // Optimized Histogram via Resize
   const dominantColors: { color: string; percentage: number }[] = [];
   const colorBuckets: Record<string, number> = {};
   let validColorPixels = 0;
 
-  // Accessing pixel data (Heavy loop, but okay for single image on client)
-  // To optimize: We could use cv.calcHist, but mapping back to names is complex without logic.
-  // We'll iterate the 'hsv' Mat data for pixels in 'coloredAreaMask'.
-  
-  // For performance in JS, we iterate the raw data array if possible, 
-  // but accessing Mat elements directly in a loop is slow in OpenCV.js.
-  // Better approach: Resize image down significantly for color analysis (e.g. 100x100)
   const smallHsv = new cv.Mat();
   const smallMask = new cv.Mat();
   const dsize = new cv.Size(100, 100);
   cv.resize(hsv, smallHsv, dsize, 0, 0, cv.INTER_AREA);
   cv.resize(coloredAreaMask, smallMask, dsize, 0, 0, cv.INTER_NEAREST);
 
-  for (let i = 0; i < smallHsv.rows; i++) {
-    for (let j = 0; j < smallHsv.cols; j++) {
-       // Check mask (uchar)
-       if (smallMask.ucharPtr(i, j)[0] > 0) {
-          const pixel = smallHsv.ucharPtr(i, j);
-          const h = pixel[0] * 2; // OpenCV Hue is 0-179, we want 0-360
-          const s = pixel[1];
-          const v = pixel[2]; // Value (Brightness)
+  // Iterate simplified data
+  const smallHsvData = smallHsv.data;
+  const smallMaskData = smallMask.data;
+  const numPixels = smallHsv.rows * smallHsv.cols;
 
-          let colorName = "Gray";
-          if (s < 30) colorName = "Gray"; // Low Saturation
-          else {
-            if (h >= 0 && h < 15) colorName = "Red";
-            else if (h >= 15 && h < 45) colorName = "Orange";
-            else if (h >= 45 && h < 70) colorName = "Yellow";
-            else if (h >= 70 && h < 150) colorName = "Green";
-            else if (h >= 150 && h < 190) colorName = "Teal";
-            else if (h >= 190 && h < 260) colorName = "Blue";
-            else if (h >= 260 && h < 300) colorName = "Purple";
-            else if (h >= 300 && h < 340) colorName = "Pink";
-            else colorName = "Red";
-          }
-          
-          colorBuckets[colorName] = (colorBuckets[colorName] || 0) + 1;
-          validColorPixels++;
-       }
-    }
+  // We can iterate linear array since channels are interleaved [h,s,v, h,s,v...]
+  // NOTE: OpenCV.js Mat type depends on source. RGBA2RGB -> 3 channels?
+  // Actually resize keeps type. RGB2HSV -> 3 channels (CV_8UC3).
+  for (let i = 0; i < numPixels; i++) {
+     if (smallMaskData[i] > 0) { // Mask is usually single channel
+        const baseIdx = i * 3;
+        const h = smallHsvData[baseIdx];
+        const s = smallHsvData[baseIdx + 1];
+        const v = smallHsvData[baseIdx + 2];
+        
+        const colorName = getHueName(h, s, v);
+        colorBuckets[colorName] = (colorBuckets[colorName] || 0) + 1;
+        validColorPixels++;
+     }
   }
 
-  // Format Colors
   Object.entries(colorBuckets).forEach(([color, count]) => {
     dominantColors.push({
       color,
-      percentage: (count / validColorPixels) * 100
+      percentage: validColorPixels > 0 ? (count / validColorPixels) * 100 : 0
     });
   });
   dominantColors.sort((a, b) => b.percentage - a.percentage);
-  
-  // Cleanup
-  src.delete(); gray.delete(); hsv.delete(); whiteMask.delete(); 
-  lineMask.delete(); notWhite.delete(); notBlack.delete(); coloredAreaMask.delete();
+
+  // Clean up
+  src.delete(); if(template) template.delete(); 
+  gray.delete(); hsv.delete(); whiteMask.delete(); 
+  lineMask.delete(); currentLines.delete(); notLines.delete(); 
+  notWhite.delete(); coloredAreaMask.delete();
   mean.delete(); stdDev.delete(); smallHsv.delete(); smallMask.delete();
-  lowerInk.delete(); upperInk.delete();
 
   return {
     whiteSpaceRatio,
     dominantColors: dominantColors.slice(0, 3),
     lineVisibilityScore,
+    rebellionScore,
     fillConsistencyScore
   };
 };

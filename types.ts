@@ -21,6 +21,7 @@ export interface CVMetrics {
   whiteSpaceRatio: number; // 0-1
   dominantColors: { color: string; percentage: number }[];
   lineVisibilityScore: number; // 0-1 (How much of the black lines remain visible)
+  rebellionScore: number; // 0-1 (How much coloring is OUTSIDE lines)
   fillConsistencyScore: number; // 0-1 (How smooth/uniform is the coloring)
 }
 

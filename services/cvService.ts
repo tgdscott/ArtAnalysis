@@ -154,10 +154,15 @@ export const analyzeImageCV = async (base64: string): Promise<CVMetrics> => {
         // Normalize: avgDiff of 0 is perfect. avgDiff of 50 is very messy.
         const fillConsistencyScore = Math.max(0, 1 - (avgDiff / 50));
 
+        // 5. Rebellion Score
+        // If lines are not visible, we assume they are colored over (rebellion).
+        const rebellionScore = Math.max(0, 1 - lineVisibilityScore);
+
         resolve({
           whiteSpaceRatio,
           dominantColors,
           lineVisibilityScore,
+          rebellionScore,
           fillConsistencyScore
         });
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Brain, ScanEye, Palette, Lock, ShieldCheck } from 'lucide-react';
+import { Sparkles, Brain, ScanEye, Palette, Lock, ShieldCheck, Loader2 } from 'lucide-react';
 import ImageUploader from './components/ImageUploader';
 import AnalysisDisplay from './components/AnalysisDisplay';
 import LoadingOverlay from './components/LoadingOverlay';
@@ -8,8 +8,10 @@ import AdminDashboard from './components/AdminDashboard';
 import { analysisService } from './services/analysisService';
 import { storageService } from './services/storageService';
 import { AppState, AnalysisResult, UploadedImage, ViewMode, SavedArtwork } from './types';
+import { useOpenCV } from './hooks/useOpenCV';
 
 const App: React.FC = () => {
+  const cvLoaded = useOpenCV();
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.ANALYZE);
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
   
@@ -33,7 +35,13 @@ const App: React.FC = () => {
     loadData();
   }, []);
 
-  const handleImageSelected = async (base64: string, mimeType: string, emotion: { primary: string, secondary: string, tertiary?: string } | undefined, userName: string) => {
+  const handleImageSelected = async (
+    base64: string, 
+    mimeType: string, 
+    emotion: { primary: string, secondary: string, tertiary?: string } | undefined, 
+    userName: string,
+    originalTemplate?: string // Optional: The blank template if available
+  ) => {
     // If coming from generator, we need to switch view mode
     setViewMode(ViewMode.ANALYZE);
     
@@ -43,7 +51,13 @@ const App: React.FC = () => {
 
     try {
       // Use the new Analysis Service that orchestrates CV + AI
-      const { result: data, cvMetrics } = await analysisService.processArtwork(base64, mimeType, emotion);
+      // Pass the originalTemplate if we have it for Rebellion Score subtraction
+      const { result: data, cvMetrics } = await analysisService.processArtwork(
+        base64, 
+        mimeType, 
+        emotion,
+        originalTemplate
+      );
       
       setResult(data);
       setAppState(AppState.SUCCESS);
@@ -75,13 +89,38 @@ const App: React.FC = () => {
 
   const handleArtworkFromGenerator = (artwork: SavedArtwork) => {
     // When analyzing from generator, we skip the emotion check/Name input for now.
-    handleImageSelected(artwork.base64, 'image/png', undefined, "Generator User");
+    // KEY: We pass artwork.base64 as the *original template* because in the generator, 
+    // the user downloads the blank, colors it offline, and re-uploads it? 
+    // Wait, typically the user would upload a *photo* of the colored version. 
+    // But if we are simulating the flow where they color digitally or we just want to analyze the blank one (test), it works.
+    
+    // However, usually the flow is: 
+    // 1. Generate Template (Stored in Library)
+    // 2. Print & Color
+    // 3. Upload Photo via "Analyze Art" tab
+    
+    // If the user clicks "Analyze This Image" on a *Generated Blank* (in ArtGenerator), 
+    // they are technically asking to analyze the blank image. 
+    // The CV will report 100% White Space and 0% Rebellion.
+    
+    handleImageSelected(artwork.base64, 'image/png', undefined, "Generator User", artwork.base64);
   };
 
   const handleSaveToGallery = async (art: SavedArtwork) => {
     setSavedGallery(prev => [art, ...prev]);
     await storageService.saveArtwork(art);
   };
+
+  // If OpenCV is not ready, block the app with a loading screen
+  if (!cvLoaded) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+        <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mb-4" />
+        <h2 className="text-xl font-bold text-slate-800">Initializing Computer Vision Engine...</h2>
+        <p className="text-slate-500 text-sm mt-2">Loading OpenCV libraries for local analysis</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans selection:bg-indigo-100 selection:text-indigo-900 flex flex-col">

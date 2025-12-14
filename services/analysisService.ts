@@ -1,11 +1,11 @@
-import { analyzeImageCV } from "./cvService";
+import { analyzeArtwork } from "./vision";
 import { analyzeImage as analyzeImageGemini } from "./geminiService";
 import { AnalysisResult, CVMetrics } from "../types";
 
 export const analysisService = {
   /**
    * Orchestrates the analysis process:
-   * 1. Runs local Computer Vision (CV) to get hard data on color/space.
+   * 1. Runs local Computer Vision (OpenCV) to get hard data on color/space.
    * 2. Constructs a data-rich prompt.
    * 3. Calls Gemini for the psychological synthesis.
    */
@@ -16,8 +16,8 @@ export const analysisService = {
   ): Promise<{ result: AnalysisResult; cvMetrics: CVMetrics }> => {
     
     // Step 1: Computer Vision Analysis
-    console.log("Running CV Analysis...");
-    const cvMetrics = await analyzeImageCV(base64);
+    console.log("Running OpenCV Analysis...");
+    const cvMetrics = await analyzeArtwork(base64);
     console.log("CV Data:", cvMetrics);
 
     // Step 2: Format Data for LLM
@@ -32,8 +32,8 @@ export const analysisService = {
        - Dominant Hues: ${cvMetrics.dominantColors.map(c => `${c.color} (${c.percentage.toFixed(0)}%)`).join(', ')}
        
     3. BOUNDARY CONTROL (FEATS: Line Fit):
-       - Line Visibility Score: ${(cvMetrics.lineVisibilityScore * 100).toFixed(0)}/100 (Higher means black lines are preserved; lower means colored over).
-       - Fill Consistency Score: ${(cvMetrics.fillConsistencyScore * 100).toFixed(0)}/100 (Higher means smooth shading; lower means energetic scribbling).
+       - Line Visibility Score: ${(cvMetrics.lineVisibilityScore * 100).toFixed(0)}/100 (Higher means black lines are preserved; lower means colored over - Rebellion).
+       - Fill Consistency Score: ${(cvMetrics.fillConsistencyScore * 100).toFixed(0)}/100 (Higher means smooth shading/Control; lower means energetic scribbling).
 
     4. USER SELF-REPORTED EMOTION:
        - Primary: ${userEmotion?.primary || "Unknown"}
@@ -43,6 +43,7 @@ export const analysisService = {
     INSTRUCTIONS:
     - Compare the CV data with the user's reported emotion. Is there a mismatch? (e.g., reported "Calm" but Fill Consistency is low/scribbly).
     - Use the White Space Ratio specifically to comment on their use of the "Void".
+    - Use Line Visibility to detect "Rebellion" (if Score is low, they colored over lines).
     `;
 
     // Step 3: GenAI Analysis

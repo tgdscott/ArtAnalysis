@@ -87,7 +87,7 @@ const ArtGenerator: React.FC<ArtGeneratorProps> = ({ onAnalyze, savedGallery, on
       setCurrentArtwork(artwork);
       onSaveToGallery(artwork);
     } catch (error) {
-      alert("Failed to generate image. Please try again.");
+      alert(error instanceof Error ? error.message : "Failed to generate image. Please try again.");
     } finally {
       setIsGenerating(false);
     }

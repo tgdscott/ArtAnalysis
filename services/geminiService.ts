@@ -2,13 +2,52 @@ import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { AnalysisResult } from "../types";
 import { SYSTEM_INSTRUCTION, USER_PROMPT } from "../constants";
 
-const apiKey = process.env.API_KEY;
+const GEMINI_API_KEY_STORAGE_KEY = 'projective_art_gemini_api_key';
 
-if (!apiKey) {
-  console.error("API_KEY is missing from environment variables.");
-}
+const getBuildTimeApiKey = (): string => {
+  return process.env.API_KEY || process.env.GEMINI_API_KEY || '';
+};
 
-const ai = new GoogleGenAI({ apiKey: apiKey || 'dummy-key-for-build' });
+export const getSavedGeminiApiKey = (): string => {
+  if (typeof window === 'undefined') return '';
+
+  try {
+    return window.localStorage.getItem(GEMINI_API_KEY_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+};
+
+export const saveGeminiApiKey = (apiKey: string): void => {
+  if (typeof window === 'undefined') return;
+
+  try {
+    const trimmed = apiKey.trim();
+    if (trimmed) {
+      window.localStorage.setItem(GEMINI_API_KEY_STORAGE_KEY, trimmed);
+    } else {
+      window.localStorage.removeItem(GEMINI_API_KEY_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage failures; the API call will surface a useful error if no key is available.
+  }
+};
+
+const getConfiguredApiKey = (): string => {
+  return getSavedGeminiApiKey() || getBuildTimeApiKey();
+};
+
+const getAIClient = (): GoogleGenAI => {
+  const apiKey = getConfiguredApiKey();
+
+  if (!apiKey) {
+    throw new Error(
+      "A Gemini API key is required for analysis and image generation on GitHub Pages. Sign out, enter a key on the login screen, and try again."
+    );
+  }
+
+  return new GoogleGenAI({ apiKey });
+};
 
 const analysisSchema: Schema = {
   type: Type.OBJECT,
@@ -33,6 +72,7 @@ const analysisSchema: Schema = {
 // Now accepts optional context string
 export const analyzeImage = async (base64Data: string, mimeType: string, context?: string): Promise<AnalysisResult> => {
   try {
+    const ai = getAIClient();
     // Strip the data:image/xxx;base64, prefix if present
     const cleanBase64 = base64Data.replace(/^data:image\/\w+;base64,/, "");
 
@@ -79,6 +119,7 @@ export const analyzeImage = async (base64Data: string, mimeType: string, context
 
 export const generateLineArt = async (prompt: string): Promise<string> => {
   try {
+    const ai = getAIClient();
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-image",
       contents: {

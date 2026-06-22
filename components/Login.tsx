@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { User, ArrowRight, Sparkles } from 'lucide-react';
+import { User, ArrowRight, Sparkles, KeyRound } from 'lucide-react';
 import { storageService } from '../services/storageService';
+import { getSavedGeminiApiKey, saveGeminiApiKey } from '../services/geminiService';
 import { User as UserType } from '../types';
 
 interface LoginProps {
@@ -11,6 +12,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
+  const [geminiApiKey, setGeminiApiKey] = useState(() => getSavedGeminiApiKey());
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -19,6 +21,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     
     setIsLoading(true);
     try {
+      saveGeminiApiKey(geminiApiKey);
       const user = await storageService.loginOrRegister(name, email, username);
       // Small artificial delay for UX feel
       setTimeout(() => {
@@ -83,6 +86,27 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
               placeholder="Leave blank to use email"
             />
+          </div>
+
+          <div>
+            <div className="flex justify-between mb-2">
+              <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Gemini API Key</label>
+              <span className="text-[10px] text-gray-400 uppercase tracking-wider">Optional</span>
+            </div>
+            <div className="relative">
+              <KeyRound className="absolute left-3 top-3 text-gray-400" size={18} />
+              <input 
+                type="password"
+                value={geminiApiKey}
+                onChange={(e) => setGeminiApiKey(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                placeholder="Needed for analysis/generation on GitHub Pages"
+                autoComplete="off"
+              />
+            </div>
+            <p className="text-[11px] text-gray-400 mt-2 leading-relaxed">
+              Stored only in this browser. GitHub Pages is static, so this keeps demo keys out of the public bundle.
+            </p>
           </div>
 
           <button 

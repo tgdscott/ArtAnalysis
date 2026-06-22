@@ -6,6 +6,8 @@
 
 A Vite/React prototype for generating ambiguous coloring pages, uploading completed artwork, running local OpenCV measurements, and asking Gemini to synthesize the visual evidence into a short projective-art snapshot.
 
+Demo URL: https://tgdscott.github.io/ArtAnalysis/
+
 View the original AI Studio app: https://ai.studio/apps/drive/1775u5eZdKbWrtbNZp3tffjmdUe8O61nY
 
 ## Run Locally

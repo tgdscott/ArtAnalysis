@@ -96,7 +96,7 @@ const App: React.FC = () => {
     } catch (err) {
       console.error(err);
       setAppState(AppState.ERROR);
-      setErrorMsg("We couldn't analyze that image. Please try a clearer photo.");
+      setErrorMsg(err instanceof Error ? err.message : "We couldn't analyze that image. Please try a clearer photo.");
     }
   };
 
